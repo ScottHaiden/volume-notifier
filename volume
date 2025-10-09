@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+
+import argparse
+import contextlib
+import json
+import os
+import pathlib
+import re
+import subprocess
+
+
+_RUNPATH = pathlib.Path(f"/run/user/{os.getuid()}")
+_DB_PATH = _RUNPATH / "volume.id"
+_LOCKFILE = _RUNPATH / "volume.lock"
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("task", type=str)
+
+    return parser.parse_args()
+
+
+def get_pactl_status(status: str) -> str:
+    cmd = ["pactl", f"get-sink-{status}", "@DEFAULT_SINK@"]
+    return subprocess.check_output(cmd).decode()
+
+
+def parse_volume(vol: str) -> str | None:
+    match = re.match(r"Volume: (.*),\s+(.*)", vol)
+    if match is None: return None
+    return "\n".join(map("- {}".format, match.groups()))
+
+
+@contextlib.contextmanager
+def check_excl():
+    try:
+        opts = os.O_CREAT|os.O_EXCL|os.O_RDWR
+        os.close(os.open(_LOCKFILE, opts, 0o600))
+    except FileExistsError as x:
+        raise SystemExit("Lock file exists, aborting.")
+    except OSError as x:
+        raise SystemExit("Unknown failure {x}")
+
+    try:
+        yield
+    finally:
+        os.unlink(_LOCKFILE)
+
+
+def main(args: argparse.Namespace):
+    cmds = {
+            "up": ["pactl", "set-sink-volume", "@DEFAULT_SINK@", "+1000"],
+            "down": ["pactl", "set-sink-volume", "@DEFAULT_SINK@", "-1000"],
+            "mute": ["pactl", "set-sink-mute", "@DEFAULT_SINK@", "toggle"],
+            "noop": ["true"],
+    }
+
+    if cmd := cmds.get(args.task):
+        subprocess.check_call(cmd)
+    else:
+        raise SystemExit(f"Invalid task {args.task}")
+
+    mute = get_pactl_status("mute").strip()
+    volume = get_pactl_status("volume")
+    status = "\n".join([mute, parse_volume(volume)])
+
+    try:
+        with open(_DB_PATH, "r") as f: notification_id = json.load(f)
+    except FileNotFoundError:
+        notification_id = None
+
+    cmd = ["notify-send", "Volume", status, "-p"]
+    if notification_id is not None:
+        cmd += ["-r", str(notification_id)]
+
+    new_id = int(subprocess.check_output(cmd).decode())
+
+    if notification_id != new_id:
+        with open(_DB_PATH, "w") as f: json.dump(new_id, f)
+
+
+if __name__ == "__main__":
+    with check_excl():
+        main(parse_args())
