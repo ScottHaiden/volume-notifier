@@ -36,7 +36,7 @@ def parse_volume(vol: str) -> str | None:
 @contextlib.contextmanager
 def lock_db(path: pathlib.Path):
     try:
-        fhandle = _DB_PATH.open("a+")
+        fhandle = path.open("a+")
         fcntl.flock(fhandle.fileno(), fcntl.LOCK_EX)
         fhandle.seek(0)
         yield fhandle
