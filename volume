@@ -2,6 +2,7 @@
 
 import argparse
 import contextlib
+import fcntl
 import json
 import os
 import pathlib
@@ -11,11 +12,11 @@ import subprocess
 
 _RUNPATH = pathlib.Path(f"/run/user/{os.getuid()}")
 _DB_PATH = _RUNPATH / "volume.id"
-_LOCKFILE = _RUNPATH / "volume.lock"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
 
+    parser.add_argument("-p", "--db-path", type=pathlib.Path, default=_DB_PATH)
     parser.add_argument("task", type=str)
 
     return parser.parse_args()
@@ -33,19 +34,15 @@ def parse_volume(vol: str) -> str | None:
 
 
 @contextlib.contextmanager
-def check_excl():
+def lock_db(path: pathlib.Path):
     try:
-        opts = os.O_CREAT|os.O_EXCL|os.O_RDWR
-        os.close(os.open(_LOCKFILE, opts, 0o600))
-    except FileExistsError as x:
-        raise SystemExit("Lock file exists, aborting.")
-    except OSError as x:
-        raise SystemExit("Unknown failure {x}")
-
-    try:
-        yield
+        fhandle = _DB_PATH.open("a+")
+        fcntl.flock(fhandle.fileno(), fcntl.LOCK_EX)
+        fhandle.seek(0)
+        yield fhandle
     finally:
-        os.unlink(_LOCKFILE)
+        fhandle.close()
+
 
 
 def main(args: argparse.Namespace):
@@ -56,30 +53,31 @@ def main(args: argparse.Namespace):
             "noop": ["true"],
     }
 
-    if cmd := cmds.get(args.task):
-        subprocess.check_call(cmd)
-    else:
-        raise SystemExit(f"Invalid task {args.task}")
+    with lock_db(args.db_path) as db:
+        if cmd := cmds.get(args.task):
+            subprocess.check_call(cmd)
+        else:
+            raise SystemExit(f"Invalid task {args.task}")
 
-    mute = get_pactl_status("mute").strip()
-    volume = get_pactl_status("volume")
-    status = "\n".join([mute, parse_volume(volume)])
+        mute = get_pactl_status("mute").strip()
+        volume = get_pactl_status("volume")
+        status = "\n".join([mute, parse_volume(volume)])
 
-    try:
-        with open(_DB_PATH, "r") as f: notification_id = json.load(f)
-    except FileNotFoundError:
-        notification_id = None
+        try:
+            notification_id = json.load(db)
+        except json.decoder.JSONDecodeError:
+            notification_id = None
 
-    cmd = ["notify-send", "Volume", status, "-p"]
-    if notification_id is not None:
-        cmd += ["-r", str(notification_id)]
+        cmd = ["notify-send", "Volume", status, "-p"]
+        if notification_id is not None:
+            cmd += ["-r", str(notification_id)]
 
-    new_id = int(subprocess.check_output(cmd).decode())
+        new_id = int(subprocess.check_output(cmd).decode())
 
-    if notification_id != new_id:
-        with open(_DB_PATH, "w") as f: json.dump(new_id, f)
+        if notification_id != new_id:
+            db.truncate(0)
+            json.dump(new_id, db)
 
 
 if __name__ == "__main__":
-    with check_excl():
-        main(parse_args())
+    main(parse_args())
