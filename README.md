@@ -8,10 +8,15 @@ current volume when it's updated.
 
 ## Installation
 
-Copy `volume` to anywhere along your `$PATH` with the read/execute bits set.
+```
+# make install
+```
+
+To override the install location, set PREFIX. For example, after the following,
+`volume` will have the path `~/.local/bin/volume`
 
 ```
-# install -m0555 -oroot -groot volume /usr/local/bin/
+$ make PREFIX=~/.local/ install
 ```
 
 ## Setup (i3wm)
