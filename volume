@@ -17,6 +17,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
 
     parser.add_argument("-p", "--db-path", type=pathlib.Path, default=_DB_PATH)
+    parser.add_argument("-i", "--interval", type=int, default=1000)
+    parser.add_argument("-s", "--sink", type=str, default="@DEFAULT_SINK@")
     parser.add_argument("task", type=str)
 
     return parser.parse_args()
@@ -46,12 +48,10 @@ def lock_db(path: pathlib.Path):
 
 
 def main(args: argparse.Namespace):
-    cmds = {
-            "up": ["pactl", "set-sink-volume", "@DEFAULT_SINK@", "+1000"],
-            "down": ["pactl", "set-sink-volume", "@DEFAULT_SINK@", "-1000"],
-            "mute": ["pactl", "set-sink-mute", "@DEFAULT_SINK@", "toggle"],
-            "noop": ["true"],
-    }
+    cmds = {"up": ["pactl", "set-sink-volume", args.sink, f"+{args.interval}"],
+            "down": ["pactl", "set-sink-volume", args.sink, f"-{args.interval}"],
+            "mute": ["pactl", "set-sink-mute", args.sink, "toggle"],
+            "noop": ["true"]}
 
     with lock_db(args.db_path) as db:
         if cmd := cmds.get(args.task):
