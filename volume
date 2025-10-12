@@ -40,6 +40,7 @@ def lock_db(path: pathlib.Path):
     try:
         fhandle = path.open("a+")
         fcntl.flock(fhandle.fileno(), fcntl.LOCK_EX)
+        os.fchmod(fhandle.fileno(), 0o600)
         fhandle.seek(0)
         yield fhandle
     finally:
