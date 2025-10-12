@@ -12,6 +12,7 @@ import subprocess
 
 _RUNPATH = pathlib.Path(f"/run/user/{os.getuid()}")
 _DB_PATH = _RUNPATH / "volume.id"
+_MUTE_RE = re.compile(r"Mute: (yes|no)")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -32,7 +33,7 @@ def get_pactl_status(status: str) -> str:
 def parse_volume(vol: str) -> str | None:
     match = re.match(r"Volume: (.*),\s+(.*)", vol)
     if match is None: return None
-    return "\n".join(map("- {}".format, match.groups()))
+    return match.groups()
 
 
 @contextlib.contextmanager
@@ -46,6 +47,25 @@ def lock_db(path: pathlib.Path):
     finally:
         fhandle.close()
 
+
+def get_icon(mutestr: str, channels: list[str]) -> str:
+    if match := re.match("^Mute: (yes|no)$", mutestr):
+        if match.group(1) == "yes": return "audio-volume-muted"
+
+    pct_re = re.compile(r"([^ ]+): ([0-9]+) / \s*([0-9]+)% / (-?[0-9.]+ dB)$")
+
+    pcts = map(pct_re.match, channels)
+    pcts = filter(None, pcts)
+    pcts = (pct.group(3) for pct in pcts)
+    pcts = map(int, pcts)
+    pcts = sum(pcts)
+    average = pcts / len(channels)
+
+    if average < 33:
+        return "audio-volume-low"
+    if average < 66:
+        return "audio-volume-medium"
+    return "audio-volume-high"
 
 
 def main(args: argparse.Namespace):
@@ -62,14 +82,16 @@ def main(args: argparse.Namespace):
 
         mute = get_pactl_status("mute").strip()
         volume = get_pactl_status("volume")
-        status = "\n".join([mute, parse_volume(volume)])
+        channels = parse_volume(volume)
+        status = "\n".join([mute] + [f"- {channel}" for channel in channels])
 
         try:
             notification_id = json.load(db)
         except json.decoder.JSONDecodeError:
             notification_id = None
 
-        cmd = ["notify-send", "Volume", status, "-p"]
+        cmd = ["notify-send", "Volume", status, "-p",
+               "-i", get_icon(mute, channels)]
         if notification_id is not None:
             cmd += ["-r", str(notification_id)]
 
