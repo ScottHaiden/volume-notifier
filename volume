@@ -40,12 +40,25 @@ def parse_volume(vol: str) -> str | None:
 def lock_db(path: pathlib.Path):
     try:
         fhandle = path.open("a+")
-        fcntl.flock(fhandle.fileno(), fcntl.LOCK_EX)
+        fcntl.flock(fhandle.fileno(), fcntl.LOCK_SH)
         os.fchmod(fhandle.fileno(), 0o600)
         fhandle.seek(0)
         yield fhandle
     finally:
         fhandle.close()
+
+
+def read_db(fhandle: int) -> int:
+    fhandle.seek(0)
+    try:
+        return json.load(fhandle)
+    except json.decoder.JSONDecodeError:
+        return None
+
+
+def write_db(fhandle, new_id: int):
+    fhandle.truncate(0)
+    json.dump(new_id, fhandle)
 
 
 def get_icon(mutestr: str, channels: list[str]) -> str:
@@ -85,21 +98,24 @@ def main(args: argparse.Namespace):
         channels = parse_volume(volume)
         status = "\n".join([mute] + [f"- {channel}" for channel in channels])
 
-        try:
-            notification_id = json.load(db)
-        except json.decoder.JSONDecodeError:
-            notification_id = None
+        old = read_db(db)
 
         cmd = ["notify-send", "Volume", status, "-p",
                "-i", get_icon(mute, channels)]
-        if notification_id is not None:
-            cmd += ["-r", str(notification_id)]
+        if old is not None:
+            cmd += ["-r", str(old)]
 
         new_id = int(subprocess.check_output(cmd).decode())
 
-        if notification_id != new_id:
-            db.truncate(0)
-            json.dump(new_id, db)
+        # If we didn't get an id to start, upgrade our lock. This is a
+        # non-atomic operation, so after we relock, check again to see if
+        # another process created an ID and saved it.
+        if old is None:
+            print("Upgrading lock")
+            fcntl.flock(db.fileno(), fcntl.LOCK_EX)
+            if read_db(db) is None:
+                print("updating db")
+                write_db(db, new_id)
 
 
 if __name__ == "__main__":
