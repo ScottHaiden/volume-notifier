@@ -17,7 +17,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
 
     parser.add_argument("-p", "--db-path", type=pathlib.Path, default=_DB_PATH)
-    parser.add_argument("-i", "--interval", type=int, default=1000)
+    parser.add_argument("-i", "--interval", type=int, default=512)
     parser.add_argument("-s", "--sink", type=str, default="@DEFAULT_SINK@")
     parser.add_argument("task", type=str)
 
