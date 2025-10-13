@@ -108,14 +108,12 @@ def main(args: argparse.Namespace):
         new_id = int(subprocess.check_output(cmd).decode())
 
         # If we didn't get an id to start, upgrade our lock. This is a
-        # non-atomic operation, so after we relock, check again to see if
-        # another process created an ID and saved it.
+        # non-atomic operation (it involves dropping the shared lock and then
+        # aquiring a new exclusive lock), so after we relock, check again to
+        # see if another process created an ID and saved it.
         if old is None:
-            print("Upgrading lock")
             fcntl.flock(db.fileno(), fcntl.LOCK_EX)
-            if read_db(db) is None:
-                print("updating db")
-                write_db(db, new_id)
+            if read_db(db) is None: write_db(db, new_id)
 
 
 if __name__ == "__main__":
