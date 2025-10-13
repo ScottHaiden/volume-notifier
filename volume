@@ -3,7 +3,6 @@
 import argparse
 import contextlib
 import fcntl
-import json
 import os
 import pathlib
 import re
@@ -42,7 +41,6 @@ def lock_db(path: pathlib.Path):
         fhandle = path.open("a+")
         fcntl.flock(fhandle.fileno(), fcntl.LOCK_SH)
         os.fchmod(fhandle.fileno(), 0o600)
-        fhandle.seek(0)
         yield fhandle
     finally:
         fhandle.close()
@@ -51,14 +49,14 @@ def lock_db(path: pathlib.Path):
 def read_db(fhandle: int) -> int:
     fhandle.seek(0)
     try:
-        return json.load(fhandle)
-    except json.decoder.JSONDecodeError:
+        return int(fhandle.read())
+    except ValueError:
         return None
 
 
 def write_db(fhandle, new_id: int):
     fhandle.truncate(0)
-    json.dump(new_id, fhandle)
+    fhandle.write(str(new_id))
 
 
 def get_icon(mutestr: str, channels: list[str]) -> str:
