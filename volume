@@ -101,7 +101,13 @@ def main(args: argparse.Namespace):
         channels = parse_volume(volume)
         status = "\n".join([mute] + [f"- {channel}" for channel in channels])
 
+        # Read the DB under a shared lock. If it's empty, then upgrade to an
+        # exclusive lock (a non atomic operation), and check again. If it's
+        # *still* empty, then we'll get a new ID and write it to the DB.
         old = read_db(db)
+        if old is None:
+            fcntl.flock(db.fileno(), fcntl.LOCK_EX)
+            old = read_db(db)
 
         cmd = ["notify-send", "Volume", status, "-p",
                "-i", get_icon(mute, channels)]
@@ -110,13 +116,7 @@ def main(args: argparse.Namespace):
 
         new_id = int(subprocess.check_output(cmd).decode())
 
-        # If we didn't get an id to start, upgrade our lock. This is a
-        # non-atomic operation (it involves dropping the shared lock and then
-        # aquiring a new exclusive lock), so after we relock, check again to
-        # see if another process created an ID and saved it.
-        if old is None:
-            fcntl.flock(db.fileno(), fcntl.LOCK_EX)
-            if read_db(db) is None: write_db(db, new_id)
+        if old is None: write_db(db, new_id)
 
 
 if __name__ == "__main__":
