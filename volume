@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import contextlib
 import fcntl
 import os
 import pathlib
@@ -33,17 +32,6 @@ def parse_volume(vol: str) -> str | None:
     match = re.match(r"Volume: (.*),\s+(.*)", vol)
     if match is None: return None
     return match.groups()
-
-
-@contextlib.contextmanager
-def lock_db(path: pathlib.Path):
-    try:
-        fhandle = path.open("a+")
-        fcntl.flock(fhandle.fileno(), fcntl.LOCK_SH)
-        os.fchmod(fhandle.fileno(), 0o600)
-        yield fhandle
-    finally:
-        fhandle.close()
 
 
 def read_db(fhandle: int) -> int:
@@ -93,7 +81,10 @@ def get_command_or_die(args: argparse.Namespace) -> list[str]:
             raise SystemExit(f"Unknown task '{args.task}'")
 
 def main(args: argparse.Namespace):
-    with lock_db(args.db_path) as db:
+    with open(args.db_path, "a+") as db:
+        fcntl.flock(db.fileno(), fcntl.LOCK_SH)
+        os.fchmod(db.fileno(), 0o600)
+
         subprocess.check_call(get_command_or_die(args))
 
         mute = get_pactl_status("mute").strip()
@@ -104,15 +95,13 @@ def main(args: argparse.Namespace):
         # Read the DB under a shared lock. If it's empty, then upgrade to an
         # exclusive lock (a non atomic operation), and check again. If it's
         # *still* empty, then we'll get a new ID and write it to the DB.
-        old = read_db(db)
-        if old is None:
+        if (old := read_db(db)) is None:
             fcntl.flock(db.fileno(), fcntl.LOCK_EX)
             old = read_db(db)
 
-        cmd = ["notify-send", "Volume", status, "-p",
-               "-i", get_icon(mute, channels)]
-        if old is not None:
-            cmd += ["-r", str(old)]
+        cmd = ["notify-send", "Volume", status,
+               "-p", "-i", get_icon(mute, channels)]
+        cmd += ["-r", str(old)] if old is not None else []
 
         new_id = int(subprocess.check_output(cmd).decode())
 
