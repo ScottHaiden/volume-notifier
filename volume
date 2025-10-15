@@ -79,17 +79,22 @@ def get_icon(mutestr: str, channels: list[str]) -> str:
     return "audio-volume-high"
 
 
-def main(args: argparse.Namespace):
-    cmds = {"up": ["pactl", "set-sink-volume", args.sink, f"+{args.interval}"],
-            "down": ["pactl", "set-sink-volume", args.sink, f"-{args.interval}"],
-            "mute": ["pactl", "set-sink-mute", args.sink, "toggle"],
-            "noop": ["true"]}
+def get_command_or_die(args: argparse.Namespace) -> list[str]:
+    match args.task:
+        case "up":
+            return ["pactl", "set-sink-volume", args.sink, f"+{args.interval}"]
+        case "down":
+            return ["pactl", "set-sink-volume", args.sink, f"-{args.interval}"]
+        case "mute":
+            return ["pactl", "set-sink-mute", args.sink, "toggle"]
+        case "noop":
+            return ["true"]
+        case _:
+            raise SystemExit(f"Unknown task '{args.task}'")
 
+def main(args: argparse.Namespace):
     with lock_db(args.db_path) as db:
-        if cmd := cmds.get(args.task):
-            subprocess.check_call(cmd)
-        else:
-            raise SystemExit(f"Invalid task {args.task}")
+        subprocess.check_call(get_command_or_die(args))
 
         mute = get_pactl_status("mute").strip()
         volume = get_pactl_status("volume")
