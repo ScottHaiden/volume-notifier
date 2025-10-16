@@ -81,16 +81,16 @@ def get_command_or_die(args: argparse.Namespace) -> list[str]:
             raise SystemExit(f"Unknown task '{args.task}'")
 
 def main(args: argparse.Namespace):
+    subprocess.check_call(get_command_or_die(args))
+
+    mute = get_pactl_status("mute").strip()
+    volume = get_pactl_status("volume")
+    channels = parse_volume(volume)
+    status = "\n".join([mute] + [f"- {channel}" for channel in channels])
+
     with open(args.db_path, "a+") as db:
         fcntl.flock(db.fileno(), fcntl.LOCK_SH)
         os.fchmod(db.fileno(), 0o600)
-
-        subprocess.check_call(get_command_or_die(args))
-
-        mute = get_pactl_status("mute").strip()
-        volume = get_pactl_status("volume")
-        channels = parse_volume(volume)
-        status = "\n".join([mute] + [f"- {channel}" for channel in channels])
 
         # Read the DB under a shared lock. If it's empty, then upgrade to an
         # exclusive lock (a non atomic operation), and check again. If it's
